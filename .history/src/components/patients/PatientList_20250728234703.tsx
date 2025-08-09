@@ -1,12 +1,14 @@
-// src/components/patients/PatientList.tsx - CLEAN VERSION
+// src/components/patients/PatientList.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { patientService } from '@/lib/firebase/patient-service';
 import { Patient, PatientSearchFilters } from '@/lib/types/patient';
 import { MagnifyingGlassIcon, PlusIcon, UserIcon } from '@heroicons/react/24/outline';
-import AddPatientModal from './AddPatientModal';
+
+// Dynamic import to fix module resolution issue
+const AddPatientModal = lazy(() => import('./AddPatientModal'));
 
 export default function PatientList() {
     const { user } = useAuth();
@@ -40,7 +42,7 @@ export default function PatientList() {
 
     const handlePatientAdded = () => {
         setShowAddModal(false);
-        loadPatients();
+        loadPatients(); // Refresh the list
     };
 
     useEffect(() => {
@@ -179,12 +181,14 @@ export default function PatientList() {
                             <li key={patient.id} className="p-4 hover:bg-gray-50 transition-colors">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center space-x-4">
+                                        {/* Avatar */}
                                         <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
                                             <span className="text-sm font-medium text-blue-800">
                                                 {getInitials(patient.name)}
                                             </span>
                                         </div>
 
+                                        {/* Patient Info */}
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-3">
                                                 <h3 className="text-lg font-medium text-gray-900 truncate">
@@ -208,6 +212,7 @@ export default function PatientList() {
                                         </div>
                                     </div>
 
+                                    {/* Date Info */}
                                     <div className="hidden sm:flex sm:flex-col sm:items-end">
                                         <p className="text-xs text-gray-500">
                                             Added {formatDate(patient.createdAt)}
@@ -235,12 +240,23 @@ export default function PatientList() {
                 </div>
             )}
 
-            {/* Modal */}
-            <AddPatientModal
-                isOpen={showAddModal}
-                onClose={() => setShowAddModal(false)}
-                onPatientAdded={handlePatientAdded}
-            />
+            {/* Add Patient Modal with Suspense boundary */}
+            {showAddModal && (
+                <Suspense fallback={
+                    <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
+                        <div className="bg-white rounded-lg p-6">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                            <p className="text-gray-600 mt-2 text-center">Loading modal...</p>
+                        </div>
+                    </div>
+                }>
+                    <AddPatientModal
+                        isOpen={showAddModal}
+                        onClose={() => setShowAddModal(false)}
+                        onPatientAdded={handlePatientAdded}
+                    />
+                </Suspense>
+            )}
         </div>
     );
 }

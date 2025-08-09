@@ -9,7 +9,6 @@ import {
     query,
     where,
     orderBy,
-    limit,
     serverTimestamp,
     Timestamp
 } from 'firebase/firestore';
@@ -20,36 +19,86 @@ export class PatientService {
     private collectionRef = collection(db, COLLECTIONS.PATIENTS);
 
     /**
-     * Create a new patient with proper user isolation
+     * Helper function to filter out undefined/null/empty values
+     * This prevents Firestore errors when trying to save undefined fields
+     */
+    private filterUndefinedValues(obj: Record<string, any>): Record<string, any> {
+        const filtered: Record<string, any> = {};
+
+        for (const [key, value] of Object.entries(obj)) {
+            // Only include fields that have actual values
+            if (value !== undefined && value !== null && value !== '') {
+                filtered[key] = value;
+            }
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Create a new patient with proper user isolation and undefined value handling
      */
     async createPatient(userId: string, patientData: CreatePatientRequest): Promise<Patient> {
         try {
+            // Validate required fields
+            if (!patientData.name?.trim()) {
+                throw new Error('Patient name is required');
+            }
+
+            if (!userId) {
+                throw new Error('User ID is required for patient creation');
+            }
+
             // Generate unique ID for the patient
             const patientRef = doc(this.collectionRef);
 
-            const patient: Omit<Patient, 'id'> = {
+            // Build patient object with only defined values
+            const basePatient = {
                 name: patientData.name.trim(),
-                mrn: patientData.mrn?.trim() || undefined,
-                dob: patientData.dob || undefined,
-                gender: patientData.gender || undefined,
                 createdBy: userId, // CRITICAL: User isolation
-                createdAt: new Date(),
-                lastModified: new Date(),
-                status: 'active'
+                status: 'active' as const
             };
 
-            await setDoc(patientRef, {
-                ...patient,
+            // Conditionally add optional fields only if they have values
+            const optionalFields: Record<string, any> = {};
+
+            if (patientData.mrn?.trim()) {
+                optionalFields.mrn = patientData.mrn.trim();
+            }
+
+            if (patientData.dob?.trim()) {
+                optionalFields.dob = patientData.dob.trim();
+            }
+
+            if (patientData.gender && patientData.gender !== '') {
+                optionalFields.gender = patientData.gender;
+            }
+
+            // Combine base fields with optional fields
+            const patientToSave = {
+                ...basePatient,
+                ...optionalFields,
                 createdAt: serverTimestamp(),
                 lastModified: serverTimestamp(),
-            });
+            };
 
+            // Save to Firestore (no undefined values will be passed)
+            await setDoc(patientRef, patientToSave);
+
+            // Return the created patient with current timestamps
+            const now = new Date();
             return {
                 id: patientRef.id,
-                ...patient
+                ...basePatient,
+                ...optionalFields,
+                createdAt: now,
+                lastModified: now,
             };
         } catch (error) {
             console.error('Error creating patient:', error);
+            if (error instanceof Error) {
+                throw new Error(`Failed to create patient: ${error.message}`);
+            }
             throw new Error('Failed to create patient');
         }
     }
@@ -62,24 +111,24 @@ export class PatientService {
             const patientRef = doc(this.collectionRef, patientId);
             const patientSnap = await getDoc(patientRef);
 
-            if (patientSnap.exists()) {
-                const data = patientSnap.data();
-
-                // CRITICAL: Verify user isolation
-                if (data.createdBy !== userId) {
-                    console.warn(`User ${userId} attempted to access patient ${patientId} created by ${data.createdBy}`);
-                    return null;
-                }
-
-                return {
-                    id: patientSnap.id,
-                    ...data,
-                    createdAt: data.createdAt?.toDate() || new Date(),
-                    lastModified: data.lastModified?.toDate() || new Date(),
-                } as Patient;
+            if (!patientSnap.exists()) {
+                return null;
             }
 
-            return null;
+            const data = patientSnap.data();
+
+            // Verify user isolation - user can only access their own patients
+            if (data.createdBy !== userId) {
+                console.warn(`User ${userId} attempted to access patient ${patientId} created by ${data.createdBy}`);
+                return null;
+            }
+
+            return {
+                id: patientSnap.id,
+                ...data,
+                createdAt: data.createdAt?.toDate() || new Date(),
+                lastModified: data.lastModified?.toDate() || new Date(),
+            } as Patient;
         } catch (error) {
             console.error('Error fetching patient:', error);
             return null;
@@ -87,7 +136,7 @@ export class PatientService {
     }
 
     /**
-     * Get all patients for a user with optional filtering and search
+     * Get all patients for a user with filtering and sorting
      */
     async getPatients(userId: string, filters: PatientSearchFilters = {}): Promise<Patient[]> {
         try {
@@ -97,7 +146,7 @@ export class PatientService {
                 where('createdBy', '==', userId)
             );
 
-            // Add status filter
+            // Add status filter if specified
             if (filters.status) {
                 q = query(q, where('status', '==', filters.status));
             }
@@ -149,20 +198,44 @@ export class PatientService {
 
             const patientRef = doc(this.collectionRef, patientId);
 
-            const updateData: any = {
+            // Build update object with only defined values
+            const updateData: Record<string, any> = {
                 lastModified: serverTimestamp(),
             };
 
-            // Only include defined fields in update
-            if (updates.name !== undefined) updateData.name = updates.name.trim();
-            if (updates.mrn !== undefined) updateData.mrn = updates.mrn?.trim() || null;
-            if (updates.dob !== undefined) updateData.dob = updates.dob || null;
-            if (updates.gender !== undefined) updateData.gender = updates.gender || null;
-            if (updates.status !== undefined) updateData.status = updates.status;
+            // Only include fields that are explicitly being updated with actual values
+            if (updates.name !== undefined && updates.name.trim() !== '') {
+                updateData.name = updates.name.trim();
+            }
+
+            if (updates.mrn !== undefined) {
+                if (updates.mrn.trim() !== '') {
+                    updateData.mrn = updates.mrn.trim();
+                }
+                // Note: To clear MRN, pass null explicitly, not empty string
+            }
+
+            if (updates.dob !== undefined) {
+                if (updates.dob.trim() !== '') {
+                    updateData.dob = updates.dob.trim();
+                }
+                // Note: To clear DOB, pass null explicitly, not empty string
+            }
+
+            if (updates.gender !== undefined && updates.gender !== '') {
+                updateData.gender = updates.gender;
+            }
+
+            if (updates.status !== undefined) {
+                updateData.status = updates.status;
+            }
 
             await updateDoc(patientRef, updateData);
         } catch (error) {
             console.error('Error updating patient:', error);
+            if (error instanceof Error) {
+                throw new Error(`Failed to update patient: ${error.message}`);
+            }
             throw new Error('Failed to update patient');
         }
     }

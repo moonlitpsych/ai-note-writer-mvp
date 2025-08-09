@@ -1,3 +1,4 @@
+// src/app/api/generate-note/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -6,46 +7,25 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 const CONTEXT_PROMPTS = {
     'hmhi-transfer': `You are a HIPAA-compliant AI clinical documentation assistant for Dr. Rufus Sweeney, a PGY-3 psychiatry resident at HMHI Downtown Clinic.
 
-Generate an Epic-compatible outpatient psychiatry transfer of care note. This is when care of a patient is passed from one resident/attending to a new resident (Dr. Sweeney is taking over care).
+Generate a comprehensive transfer of care note for outpatient psychiatry.
 
-CRITICAL TRANSFER OF CARE INSTRUCTIONS:
-The previous patient note contains sections that should be copied forward unchanged, and sections that need to be updated based on today's visit transcript.
+CRITICAL: HMHI Downtown uses Epic EMR - include relevant Epic SmartPhrases and @SMARTPHRASE@ syntax where appropriate.
 
-SECTIONS TO UPDATE/MODIFY (focus your effort here):
-- HPI (History of Present Illness)
-- Review of Systems  
-- Psychiatric exam/Mental Status Exam
-- Assessment (interval update, new findings from today's visit per the transcript)
-- Parts of the Plan (according to the transcript):
-  * Medications  
-  * Psychosocial
-
-SECTIONS TO COPY FORWARD UNCHANGED (preserve exactly as-is):
-- Basic patient info (name, MRN, DOB)
-- Diagnoses (automatically pulled in from elsewhere)
-- Current medications (automatically pulled in from elsewhere)
-- Behavioral Health prior meds tried
-- Risks (risk assessment)
-- Parts of the Plan:
-  * Safety Plan 
-  * Prognosis 
-  * Psychotherapy
-
-Use professional psychiatric documentation language with Epic SmartPhrases (@SMARTPHRASE@) and DotPhrases (.dotphrase) where appropriate.
-
-Write concisely in clinical prose from Dr. Sweeney's perspective.`,
+For transfer of care notes, follow these specific guidelines:
+1. Copy forward unchanged sections from the previous note when appropriate
+2. Update only sections that have new information from the session
+3. Maintain continuity of care documentation
+4. Use Epic-compatible formatting and SmartPhrases`,
 
     'hmhi-followup': `You are a HIPAA-compliant AI clinical documentation assistant for Dr. Rufus Sweeney, a PGY-3 psychiatry resident at HMHI Downtown Clinic.
 
-Generate an Epic-compatible outpatient psychiatry follow-up note.
+Generate a concise but comprehensive outpatient psychiatry follow-up note.
 
-Use professional psychiatric documentation language with Epic SmartPhrases (@SMARTPHRASE@) and DotPhrases (.dotphrase) where appropriate.
-
-Structure the note with standard psychiatric follow-up sections.`,
+CRITICAL: HMHI Downtown uses Epic EMR - include relevant Epic SmartPhrases and @SMARTPHRASE@ syntax where appropriate.`,
 
     'dbh-intake': `You are a HIPAA-compliant AI clinical documentation assistant for Dr. Rufus Sweeney, a PGY-3 psychiatry resident at Davis Behavioral Health.
 
-Generate a Credible EMR-compatible outpatient psychiatry intake note. 
+Generate a comprehensive Credible EMR-compatible outpatient psychiatry intake assessment.
 
 CRITICAL: Davis Behavioral Health uses Credible EMR - output PLAIN TEXT ONLY. Do NOT use Epic SmartPhrases, @SMARTPHRASE@ syntax, or .dotphrases.
 
@@ -70,9 +50,17 @@ Generate a mental health integration follow-up note for primary care setting.
 Use clear, accessible language appropriate for integrated care documentation.`
 };
 
+interface PatientContext {
+    patientId: string;
+    patientName: string;
+    patientMRN?: string;
+    patientDOB?: string;
+    patientGender?: string;
+}
+
 export async function POST(request: NextRequest) {
     try {
-        const { transcript, context, previousNote } = await request.json();
+        const { transcript, context, previousNote, patientContext } = await request.json();
 
         if (!transcript) {
             return NextResponse.json(
@@ -97,6 +85,29 @@ export async function POST(request: NextRequest) {
 TRANSCRIPT:
 ${transcript}`;
 
+        // Add patient context if provided
+        if (patientContext) {
+            prompt += `
+
+PATIENT INFORMATION:
+Name: ${patientContext.patientName}`;
+
+            if (patientContext.patientMRN) {
+                prompt += `
+MRN: ${patientContext.patientMRN}`;
+            }
+
+            if (patientContext.patientDOB) {
+                prompt += `
+Date of Birth: ${patientContext.patientDOB}`;
+            }
+
+            if (patientContext.patientGender) {
+                prompt += `
+Gender: ${patientContext.patientGender}`;
+            }
+        }
+
         // Add previous note for transfer of care
         if (context === 'hmhi-transfer' && previousNote) {
             prompt += `
@@ -113,7 +124,10 @@ Generate the clinical note now:`;
         const response = await result.response;
         const note = response.text();
 
-        return NextResponse.json({ note });
+        return NextResponse.json({
+            note,
+            patientContext: patientContext || null
+        });
 
     } catch (error) {
         console.error('Error generating note:', error);

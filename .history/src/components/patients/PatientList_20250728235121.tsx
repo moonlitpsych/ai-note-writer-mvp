@@ -1,4 +1,4 @@
-// src/components/patients/PatientList.tsx - CLEAN VERSION
+// src/components/patients/PatientList.tsx - Using NewPatientModal
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { patientService } from '@/lib/firebase/patient-service';
 import { Patient, PatientSearchFilters } from '@/lib/types/patient';
 import { MagnifyingGlassIcon, PlusIcon, UserIcon } from '@heroicons/react/24/outline';
-import AddPatientModal from './AddPatientModal';
+import NewPatientModal from './NewPatientModal';
 
 export default function PatientList() {
     const { user } = useAuth();
@@ -103,7 +103,7 @@ export default function PatientList() {
                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                     <PlusIcon className="h-5 w-5" />
-                    Add Patient
+                    Add Patient (Test)
                 </button>
             </div>
 
@@ -168,7 +168,7 @@ export default function PatientList() {
                                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                                 >
                                     <PlusIcon className="h-5 w-5" />
-                                    Add First Patient
+                                    Add First Patient (Test)
                                 </button>
                             </>
                         )}
@@ -235,8 +235,8 @@ export default function PatientList() {
                 </div>
             )}
 
-            {/* Modal */}
-            <AddPatientModal
+            {/* Test Modal */}
+            <NewPatientModal
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
                 onPatientAdded={handlePatientAdded}
